@@ -1,59 +1,50 @@
-package Encode::DoubleEncodedUTF8;
+package Encode::DoubleEncodedUTF8N;
 
 use strict;
 use base qw( Encode::Encoding );
+use Carp ();
 use Encode 2.12 ();
 
 our $VERSION = '0.05';
 
 __PACKAGE__->Define('utf-8-de');
 
-my $latin1_as_utf8 = "[\xC2\xC3][\x80-\xBF]";
+my $UTF8_double_encoded = qr/
+    \xC3 (?: [\x82-\x9F] \xC2 [\x80-\xBF]                                    # U+0080 - U+07FF
+           |  \xA0       \xC2 [\xA0-\xBF] \xC2 [\x80-\xBF]                   # U+0800 - U+0FFF
+           | [\xA1-\xAC] \xC2 [\x80-\xBF] \xC2 [\x80-\xBF]                   # U+1000 - U+CFFF
+           |  \xAD       \xC2 [\x80-\x9F] \xC2 [\x80-\xBF]                   # U+D000 - U+D7FF
+           | [\xAE-\xAF] \xC2 [\x80-\xBF] \xC2 [\x80-\xBF]                   # U+E000 - U+FFFF
+           |  \xB0       \xC2 [\x90-\xBF] \xC2 [\x80-\xBF] \xC2 [\x80-\xBF]  # U+010000 - U+03FFFF
+           | [\xB1-\xB3] \xC2 [\x80-\xBF] \xC2 [\x80-\xBF] \xC2 [\x80-\xBF]  # U+040000 - U+0FFFFF
+           |  \xB4       \xC2 [\x80-\x8F] \xC2 [\x80-\xBF] \xC2 [\x80-\xBF]  # U+100000 - U+10FFFF
+         )
+/x;
 
-# (Taken from Test::utf8 module)
-# A Regexp string to match valid UTF8 bytes
-# this info comes from page 78 of "The Unicode Standard 4.0"
-# published by the Unicode Consortium
-my $valid_utf8_regexp = <<'.' ;
-        [\x{00}-\x{7f}]
-      | [\x{c2}-\x{df}][\x{80}-\x{bf}]
-      |         \x{e0} [\x{a0}-\x{bf}][\x{80}-\x{bf}]
-      | [\x{e1}-\x{ec}][\x{80}-\x{bf}][\x{80}-\x{bf}]
-      |         \x{ed} [\x{80}-\x{9f}][\x{80}-\x{bf}]
-      | [\x{ee}-\x{ef}][\x{80}-\x{bf}][\x{80}-\x{bf}]
-      |         \x{f0} [\x{90}-\x{bf}][\x{80}-\x{bf}]
-      | [\x{f1}-\x{f3}][\x{80}-\x{bf}][\x{80}-\x{bf}][\x{80}-\x{bf}]
-      |         \x{f4} [\x{80}-\x{8f}][\x{80}-\x{bf}][\x{80}-\x{bf}]
-.
+my %MAP = map { pack('C', $_) => pack('C', $_ ^ 0x40) } (0x82..0xB4);
 
 sub decode {
     my($obj, $buf, $chk) = @_;
 
-    $buf =~ s{((?:$latin1_as_utf8){2,3})}{ _check_utf8_bytes($1) }ego;
-    $_[1] = '' if $chk; # this is what in-place edit means
+    utf8::downgrade($buf, 1)
+      or Carp::croak('Wide characters in string');
 
+    $buf =~ s!($UTF8_double_encoded)!
+        my $s = $1;
+        $s =~ s/[\xC2-\xC3]//g;
+        substr $s, 0, 1, $MAP{substr $s, 0, 1};
+        $s;
+    !xgeo;
+
+    $_[1] = '' if $chk; # this is what in-place edit means
     Encode::decode_utf8($buf);
 }
 
-sub _check_utf8_bytes {
-    my $bytes = shift;
-    my $copy  = $bytes;
-
-    my $possible_utf8 = '';
-    while ($copy =~ s/^(.)(.)//) {
-        $possible_utf8 .= chr( (ord($1) << 6 & 0xff) | ord($2) )
-    }
-
-    $possible_utf8 =~ /$valid_utf8_regexp/xo ? $possible_utf8 : $bytes;
-}
-
 sub encode {
-    use Carp;
     Carp::croak("utf-8-de doesn't support encode() ... Why do you want to do that?");
 }
 
 1;
-__END__
 
 =for stopwords utf-8 UTF-8
 
