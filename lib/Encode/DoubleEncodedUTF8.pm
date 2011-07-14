@@ -1,4 +1,4 @@
-package Encode::DoubleEncodedUTF8N;
+package Encode::DoubleEncodedUTF8;
 
 use strict;
 use base qw( Encode::Encoding );
